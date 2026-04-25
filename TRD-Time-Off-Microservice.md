@@ -69,6 +69,42 @@ Constraints:
 - TimeOffBalance unique(employeeId, locationId)
 - TimeOffRequest unique(employeeId, idempotencyKey)
 
+Mermaid ERD:
+
+```mermaid
+erDiagram
+  EMPLOYEE ||--o{ TIME_OFF_BALANCE : has
+  LOCATION ||--o{ TIME_OFF_BALANCE : scoped_by
+  EMPLOYEE ||--o{ TIME_OFF_REQUEST : submits
+  LOCATION ||--o{ TIME_OFF_REQUEST : for
+
+  EMPLOYEE {
+    string id PK
+    string name
+  }
+
+  LOCATION {
+    string id PK
+    string name
+  }
+
+  TIME_OFF_BALANCE {
+    string id PK
+    string employeeId FK
+    string locationId FK
+    float availableDays
+  }
+
+  TIME_OFF_REQUEST {
+    string id PK
+    string employeeId FK
+    string locationId FK
+    float daysRequested
+    string status
+    string idempotencyKey
+  }
+```
+
 ## Idempotency
 
 For POST /time-off/requests:
