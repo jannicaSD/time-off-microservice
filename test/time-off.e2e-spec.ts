@@ -112,6 +112,17 @@ describe('Time Off API (e2e)', () => {
     expect(second.body.id).toBe(first.body.id);
   });
 
+  it('rejects invalid request payloads', async () => {
+    return request(app.getHttpServer())
+      .post('/time-off/requests')
+      .send({
+        employeeId: 'emp-invalid',
+        locationId: 'loc-1',
+        daysRequested: 1,
+      })
+      .expect(400);
+  });
+
   it('applies webhook update and exposes balance', async () => {
     await request(app.getHttpServer())
       .post('/sync/webhook/hcm-update')
@@ -199,6 +210,58 @@ describe('Time Off API (e2e)', () => {
       .expect(201)
       .expect((res) => {
         expect(res.body.status).toBe('APPROVED');
+      });
+  });
+
+  it('rejects request with reason', async () => {
+    await setHcmBalance('emp-8', 'loc-1', 10);
+
+    const created = await request(app.getHttpServer())
+      .post('/time-off/requests')
+      .send({
+        employeeId: 'emp-8',
+        locationId: 'loc-1',
+        daysRequested: 1,
+        idempotencyKey: 'idem-8',
+      })
+      .expect(201);
+
+    return request(app.getHttpServer())
+      .post(`/time-off/requests/${created.body.id}/reject`)
+      .send({ reason: 'schedule conflict' })
+      .expect(201)
+      .expect((res) => {
+        expect(res.body.status).toBe('REJECTED');
+      });
+  });
+
+  it('cancels request', async () => {
+    await setHcmBalance('emp-9', 'loc-1', 10);
+
+    const created = await request(app.getHttpServer())
+      .post('/time-off/requests')
+      .send({
+        employeeId: 'emp-9',
+        locationId: 'loc-1',
+        daysRequested: 1,
+        idempotencyKey: 'idem-9',
+      })
+      .expect(201);
+
+    return request(app.getHttpServer())
+      .delete(`/time-off/requests/${created.body.id}`)
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.status).toBe('CANCELLED');
+      });
+  });
+
+  it('returns health status', async () => {
+    return request(app.getHttpServer())
+      .get('/health')
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.status).toBe('ok');
       });
   });
 

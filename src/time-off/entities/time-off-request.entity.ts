@@ -3,6 +3,9 @@ import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 export enum TimeOffRequestStatus {
   SUBMITTED = 'SUBMITTED',
   APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  CANCELLED = 'CANCELLED',
+  SYNC_FAILED = 'SYNC_FAILED',
 }
 
 @Entity('time_off_requests')

@@ -9,6 +9,7 @@ import { Repository } from 'typeorm';
 import { HcmClient } from '../sync/hcm.client';
 import { CreateTimeOffRequestDto } from './dto/create-time-off-request.dto';
 import { TimeOffBalance } from './entities/time-off-balance.entity';
+import { TimeOffRequestHistory } from './entities/time-off-request-history.entity';
 import {
   TimeOffRequest,
   TimeOffRequestStatus,
@@ -21,6 +22,8 @@ export class TimeOffService {
     private readonly requestRepo: Repository<TimeOffRequest>,
     @InjectRepository(TimeOffBalance)
     private readonly balanceRepo: Repository<TimeOffBalance>,
+    @InjectRepository(TimeOffRequestHistory)
+    private readonly historyRepo: Repository<TimeOffRequestHistory>,
     private readonly hcmClient: HcmClient,
   ) {}
 
@@ -62,14 +65,54 @@ export class TimeOffService {
   }
 
   async approveRequest(requestId: string): Promise<TimeOffRequest> {
-    const request = await this.requestRepo.findOne({ where: { id: requestId } });
+    const request = await this.findRequestOrThrow(requestId);
 
-    if (!request) {
-      throw new BadRequestException('Request not found');
+    if (request.status !== TimeOffRequestStatus.SUBMITTED) {
+      throw new ConflictException('Only submitted requests can be approved');
     }
 
-    request.status = TimeOffRequestStatus.APPROVED;
-    return this.requestRepo.save(request);
+    return this.transitionRequestStatus(request, TimeOffRequestStatus.APPROVED);
+  }
+
+  async rejectRequest(requestId: string, reason?: string): Promise<TimeOffRequest> {
+    const request = await this.findRequestOrThrow(requestId);
+
+    if (request.status !== TimeOffRequestStatus.SUBMITTED) {
+      throw new ConflictException('Only submitted requests can be rejected');
+    }
+
+    return this.transitionRequestStatus(request, TimeOffRequestStatus.REJECTED, reason);
+  }
+
+  async cancelRequest(requestId: string): Promise<TimeOffRequest> {
+    const request = await this.findRequestOrThrow(requestId);
+
+    if (request.status !== TimeOffRequestStatus.SUBMITTED) {
+      throw new ConflictException('Only submitted requests can be cancelled');
+    }
+
+    return this.transitionRequestStatus(request, TimeOffRequestStatus.CANCELLED);
+  }
+
+  async validateApprovedRequest(requestId: string): Promise<boolean> {
+    const request = await this.findRequestOrThrow(requestId);
+
+    if (request.status !== TimeOffRequestStatus.APPROVED) {
+      throw new ConflictException('Only approved requests can be reconciled');
+    }
+
+    const currentBalance = await this.hcmClient.getBalance(request.employeeId, request.locationId);
+
+    if (!currentBalance || currentBalance.availableDays < 0) {
+      await this.transitionRequestStatus(
+        request,
+        TimeOffRequestStatus.SYNC_FAILED,
+        'HCM balance reconciliation failed',
+      );
+      return false;
+    }
+
+    return true;
   }
 
   async getBalances(employeeId?: string): Promise<TimeOffBalance[]> {
@@ -78,5 +121,36 @@ export class TimeOffService {
     }
 
     return this.balanceRepo.find({ where: { employeeId } });
+  }
+
+  private async findRequestOrThrow(requestId: string): Promise<TimeOffRequest> {
+    const request = await this.requestRepo.findOne({ where: { id: requestId } });
+
+    if (!request) {
+      throw new BadRequestException('Request not found');
+    }
+
+    return request;
+  }
+
+  private async transitionRequestStatus(
+    request: TimeOffRequest,
+    newStatus: TimeOffRequestStatus,
+    reason?: string,
+  ): Promise<TimeOffRequest> {
+    const oldStatus = request.status;
+    request.status = newStatus;
+
+    const savedRequest = await this.requestRepo.save(request);
+    await this.historyRepo.save(
+      this.historyRepo.create({
+        requestId: savedRequest.id,
+        oldStatus,
+        newStatus,
+        reason,
+      }),
+    );
+
+    return savedRequest;
   }
 }
