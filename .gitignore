@@ -1,0 +1,7 @@
+node_modules/
+dist/
+coverage/
+data.sqlite
+test/data-e2e.sqlite
+npm-debug.log*
+.env
